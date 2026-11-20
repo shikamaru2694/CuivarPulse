@@ -9,6 +9,12 @@ your hands. Underneath is a full player in the Quick Access Menu that keeps play
 
 <p align="center">
   <img src="docs/lights.gif" width="80%" alt="The Legion Go S joystick rings glowing softly, then flashing white on the drop of Cheap Thrills">
+  <br><sub>The joystick lights on the drop of <i>Cheap Thrills</i> (Legion Go S).</sub>
+</p>
+
+<p align="center">
+  <img src="docs/feel-the-beat.jpg" width="80%" alt="Illustration: a handheld held in two hands, glowing joystick rings, and waves rippling out from the grips as the controller taps along to the music">
+  <br><sub>Feel the beat: the rumble motors tap along with the song (illustration).</sub>
 </p>
 
 <p align="center">
