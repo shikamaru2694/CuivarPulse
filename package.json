@@ -1,7 +1,7 @@
 {
   "name": "cuivar-pulse",
   "version": "1.0.0",
-  "description": "Ad-free music for SteamOS that keeps playing while you game (Decky Loader plugin)",
+  "description": "Ad-free music player for handhelds: controller lights and rumble synced to the beat (Decky Loader plugin)",
   "type": "module",
   "private": true,
   "license": "GPL-3.0",

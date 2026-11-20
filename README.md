@@ -1,10 +1,15 @@
 # Cuivar Pulse
 
-**Ad-free music on SteamOS that keeps playing while you game.**
+**The ad-free music player built for handhelds: your controller lights up and rumbles to the beat.**
 
-Cuivar Pulse is a [Decky Loader](https://decky.xyz) plugin that puts a full music player in the
-Quick Access Menu. Search and play songs, build playlists, download for offline, and on the
-Legion Go S, the joystick lights dance to the beat.
+Cuivar Pulse is a [Decky Loader](https://decky.xyz) plugin that makes your handheld part of the
+music. The joystick lights pulse with every beat, flash white-hot on the big hits and build up
+into the drops. **Feel the beat** taps the rumble motors in time with the song, so you feel it in
+your hands. Underneath is a full player in the Quick Access Menu that keeps playing while you game.
+
+<p align="center">
+  <img src="docs/lights.gif" width="80%" alt="The Legion Go S joystick rings glowing softly, then flashing white on the drop of Cheap Thrills">
+</p>
 
 <p align="center">
   <img src="docs/player.jpg" width="31%" alt="Player: Cheap Thrills by Sia on the artwork disc, with playback controls and music volume">
@@ -15,14 +20,13 @@ Legion Go S, the joystick lights dance to the beat.
   <img src="docs/settings.jpg" width="80%" alt="Settings: controller lights, light colours, feel the beat and voice search">
 </p>
 
-<p align="center">
-  <img src="docs/lights.gif" width="80%" alt="The Legion Go S joystick rings glowing softly, then flashing white on the drop of Cheap Thrills">
-</p>
-
-*Screenshots show the Legion Go S. In-game, the player lives in the Quick Access Menu (`…`).*
+*Shown on the Legion Go S. In-game, the player lives in the Quick Access Menu (`…`).*
 
 ## Features
 
+- **Lights that dance to the music** *(Legion Go S)*: the joystick rings pulse on every beat, flash white-hot on the biggest hits, double-flash on drops and build up before the big ones. Colours come from the song's artwork, or choose **Energy**, **Rainbow** or a single colour in Settings. Your own lighting comes back when the music stops.
+- **Feel the beat** *(handhelds with rumble, off by default)*: **Subtle** taps on the biggest beats and drops; **Strong** taps every beat and hits harder on the drops.
+- **In sync with what you hear**, even on Bluetooth headphones: the lights and rumble wait for the audio delay automatically.
 - **Plays over your games.** Music runs in the background; open the Quick Access Menu (`…`) any time to control it.
 - **No ads, no account.** Search songs and artists and play them straight away. When the queue ends, a radio of similar songs keeps it going.
 - **Voice search.** Hold **Y**, say a song, let go. Speech is turned into text on your device (offline Whisper model); your voice never leaves it. One-time 135 MB download the first time you use it, removable in Settings.
@@ -30,8 +34,6 @@ Legion Go S, the joystick lights dance to the beat.
 - **Seek on the disc.** Drag the ring around the artwork to jump through a song, or highlight it and press D-pad **left / right** for −10 s / +10 s.
 - **Playlists and offline downloads.** Downloaded songs play without internet. Set a download limit (by songs or storage) in Settings; Cuivar reminds you when you're close and suggests songs you haven't played in 30 days.
 - **Separate music volume.** Turn the music down without touching your game's sound.
-- **Controller lights** *(Legion Go S)*: the joystick rings pulse to the beat in the colours of the song's artwork. Choose **Artwork**, **Energy**, **Rainbow** or a single colour in Settings. Your own lighting comes back when the music stops.
-- **Feel the beat** *(handhelds with rumble, off by default)*: **Subtle** taps on the biggest beats and drops; **Strong** taps every beat and hits harder on the drops.
 - **Picks up where you left off.** Queue, position, shuffle and repeat survive restarts.
 
 ## Install

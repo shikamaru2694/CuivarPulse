@@ -5,7 +5,7 @@
   "api_version": 1,
   "publish": {
     "tags": ["music", "audio"],
-    "description": "Ad-free music that keeps playing while you game.",
+    "description": "Ad-free music for handhelds. Your controller lights up and rumbles to the beat.",
     "image": ""
   }
 }
