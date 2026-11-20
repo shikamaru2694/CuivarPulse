@@ -36,12 +36,13 @@ Legion Go S, the joystick lights dance to the beat.
 
 ## Install
 
-**From the Decky store:** open Decky → the store icon → search for *Cuivar Pulse* → Install.
-
-**From a ZIP (manual):**
-1. Download `CuivarPulse-<version>.zip` from the [Releases](../../releases) page.
+**From a ZIP:**
+1. On your handheld, download `CuivarPulse-<version>.zip` from the [Releases](../../releases/latest) page
+   (in Desktop Mode, or copy it over to the Downloads folder).
 2. In Decky's settings, turn on **Developer mode**.
 3. Developer → **Install plugin from ZIP** and pick the file.
+
+**From the Decky store:** coming soon.
 
 Needs SteamOS (or another Linux with PipeWire) and Decky Loader 3.x. Nothing else to install:
 playback uses ffmpeg and PipeWire, which SteamOS already has.
