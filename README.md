@@ -44,6 +44,14 @@ your hands. Underneath is a full player in the Quick Access Menu that keeps play
 
 ## Install
 
+**From a URL (easiest):**
+1. In Decky's settings, turn on **Developer mode**.
+2. Developer → **Install Plugin from URL** and paste:
+   ```
+   https://github.com/shikamaru2694/CuivarPulse/releases/latest/download/CuivarPulse-1.0.0.zip
+   ```
+   (Use the direct `.zip` link: the Releases *page* link won't install.)
+
 **From a ZIP:**
 1. On your handheld, download `CuivarPulse-<version>.zip` from the [Releases](../../releases/latest) page
    (in Desktop Mode, or copy it over to the Downloads folder).
