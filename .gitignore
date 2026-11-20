@@ -1,0 +1,18 @@
+node_modules/
+dist/
+out/
+__pycache__/
+*.pyc
+
+# Downloaded at build time (see "remote_binary" in package.json)
+bin/
+
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Raw Steam screenshots (uncropped: show the Steam profile); the README uses the crops in docs/
+docs/screenshots/
+
+# Your own device for scripts/deploy.ps1
+scripts/deploy.local.ps1

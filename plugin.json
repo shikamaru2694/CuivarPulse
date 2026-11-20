@@ -1,0 +1,11 @@
+{
+  "name": "Cuivar Pulse",
+  "author": "Cuivar",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["music", "audio"],
+    "description": "Ad-free music that keeps playing while you game.",
+    "image": ""
+  }
+}

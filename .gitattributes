@@ -1,0 +1,5 @@
+# Keep Linux line endings: the plugin runs on SteamOS.
+* text=auto eol=lf
+*.jpg binary
+*.gif binary
+
