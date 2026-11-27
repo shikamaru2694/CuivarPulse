@@ -66,13 +66,23 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     name = f"{FOLDER}.zip"
     zip_path = os.path.join(out_dir, name)
+    def content(path):
+        # A release takes the committed bytes straight from git (the tag), so
+        # any computer builds the same ZIP whatever its line-ending settings.
+        # A test build takes the files as they are on disk.
+        if args.tag and path not in BUILT:
+            return subprocess.run(["git", "show", f"{args.tag}:{path}"], cwd=ROOT,
+                                  capture_output=True, check=True).stdout
+        with open(os.path.join(ROOT, path), "rb") as f:
+            return f.read()
+
     with zipfile.ZipFile(zip_path, "w") as zf:
         for path in paths:
             info = zipfile.ZipInfo(f"{FOLDER}/{path}", FIXED_DATE)
             info.external_attr = (0o644 | 0o100000) << 16
+            info.create_system = 3  # "made on Unix" whatever builds it, so the bytes match
             info.compress_type = zipfile.ZIP_DEFLATED
-            with open(os.path.join(ROOT, path), "rb") as f:
-                zf.writestr(info, f.read())
+            zf.writestr(info, content(path))
 
     digest = sha256(zip_path)
     with open(os.path.join(out_dir, "SHA256SUMS"), "w", newline="\n") as f:

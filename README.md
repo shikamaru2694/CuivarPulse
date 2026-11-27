@@ -151,6 +151,9 @@ sha256sum -c SHA256SUMS                     # the ZIP matches the published chec
 gh attestation verify CuivarPulse.zip --repo shikamaru2694/CuivarPulse   # and was built by this repository's workflow
 ```
 
+Or rebuild it: in a clone, `npm ci && python scripts/package.py --tag v1.1.0` produces a ZIP
+with the **same SHA-256** as the release. Builds are reproducible, on Linux or Windows.
+
 ## Build from source
 
 Requires Node.js 18+ and Python 3.
