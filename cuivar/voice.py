@@ -48,8 +48,8 @@ def tidy(text):
     ("Hello by Adele. Hello by Adele. Hello by…") and drop end punctuation.
     Single repeated words stay ("Bye Bye Bye" is a real song). Sound tags
     Whisper adds for non-speech ("[music]", "(applause)", "*sad music*", ♪)
-    are dropped."""
-    text = re.sub(r"[\[(][^\])]*[\])]|\*[^*]*\*|[♪♫]", " ", text)
+    are dropped, including one cut off at the end ("[S")."""
+    text = re.sub(r"[\[(][^\])]*([\])]|$)|\*[^*]*(\*|$)|[♪♫]", " ", text)
     words = text.split()
     for size in range(2, len(words) // 2 + 1):
         unit = [w.strip(".,!?").lower() for w in words[:size]]

@@ -26,13 +26,24 @@ your hands. Underneath is a full player in the Quick Access Menu that keeps play
   <img src="docs/settings.jpg" width="80%" alt="Settings: controller lights, light colours, feel the beat and voice search">
 </p>
 
+### TV mode
+
+The song's music video as pixel art, fullscreen on the Legion Go S. Here's the same frame of
+*Dance Monkey* (Tones And I) in each pixel style (Settings → TV mode → Pixel style):
+
+| Retro (default) | Arcade | Game Boy |
+|---|---|---|
+| <img src="docs/tv-retro.png" alt="TV mode, Retro style: the music video in a 32-colour game palette with a light dither"> | <img src="docs/tv-arcade.png" alt="TV mode, Arcade style: the video's own colours in square pixels with CRT scanlines"> | <img src="docs/tv-gameboy.png" alt="TV mode, Game Boy style: four shades of green"> |
+| 32 classic game colours with a light dither | The video's own colours with CRT scanlines | Four shades of green |
+
 *Shown on the Legion Go S. In-game, the player lives in the Quick Access Menu (`…`).*
 
 ## Features
 
-- **Lights that dance to the music** *(Legion Go S)*: the joystick rings pulse on every beat, flash white-hot on the biggest hits, double-flash on drops and build up before the big ones. Colours come from the song's artwork, or choose **Energy**, **Rainbow** or a single colour in Settings. Your own lighting comes back when the music stops.
+- **Lights that dance to the music** *(Legion Go S)*: the joystick rings pulse on every beat, flash white-hot on the biggest hits, double-flash on drops and build up before the big ones. Colours come from the song's artwork (or its music video in TV mode), a **Rainbow** that speeds up as the song gets intense, or a single colour. Your own lighting comes back when the music stops.
 - **Feel the beat** *(handhelds with rumble, off by default)*: **Subtle** taps on the biggest beats and drops; **Strong** taps every beat and hits harder on the drops.
 - **In sync with what you hear**, even on Bluetooth headphones: the lights and rumble wait for the audio delay automatically.
+- **TV mode.** Switch the player from ♪ to 📺 and the song's music video plays as retro pixel art, in sync with the music, in the panel or fullscreen. Pick Retro, Arcade (CRT scanlines) or Game Boy style. Songs without a real video keep their artwork. Never runs while a game is open.
 - **Plays over your games.** Music runs in the background; open the Quick Access Menu (`…`) any time to control it.
 - **No ads, no account.** Search songs and artists and play them straight away. When the queue ends, a radio of similar songs keeps it going.
 - **Voice search.** Hold **Y**, say a song, let go. Speech is turned into text on your device (offline Whisper model); your voice never leaves it. One-time 135 MB download the first time you use it, removable in Settings.
@@ -48,20 +59,21 @@ your hands. Underneath is a full player in the Quick Access Menu that keeps play
 1. In Decky's settings, turn on **Developer mode**.
 2. Developer → **Install Plugin from URL** and paste:
    ```
-   https://github.com/shikamaru2694/CuivarPulse/releases/latest/download/CuivarPulse-1.0.0.zip
+   https://github.com/shikamaru2694/CuivarPulse/releases/latest/download/CuivarPulse.zip
    ```
-   (Use the direct `.zip` link: the Releases *page* link won't install.)
+   (Use the direct `.zip` link: the Releases *page* link won't install. This link always gets the newest version.)
+
+**From DeckyHub:** search for *Cuivar Pulse* in [DeckyHub](https://deckyhub.com/plugins/cuivarpulse.html)'s Discover tab.
 
 **From a ZIP:**
-1. On your handheld, download `CuivarPulse-<version>.zip` from the [Releases](../../releases/latest) page
+1. On your handheld, download `CuivarPulse.zip` from the [Releases](../../releases/latest) page
    (in Desktop Mode, or copy it over to the Downloads folder).
 2. In Decky's settings, turn on **Developer mode**.
 3. Developer → **Install plugin from ZIP** and pick the file.
 
-**From the Decky store:** coming soon.
-
 Needs SteamOS (or another Linux with PipeWire) and Decky Loader 3.x. Nothing else to install:
-playback uses ffmpeg and PipeWire, which SteamOS already has.
+playback uses ffmpeg and PipeWire, which SteamOS already has. The first time it starts, Cuivar
+Pulse sets up its music engine (about 5 MB, see [What's in the release](#whats-in-the-release)).
 
 ## Settings
 
@@ -69,41 +81,93 @@ Open the plugin and press the **⚙** in the title bar.
 
 | Setting | What it does |
 |---|---|
-| Controller | Music lights on/off and their colours (devices with ring lights), and *Feel the beat* taps (devices with rumble). |
+| Controller | Music lights on/off and their colours (Artwork, Rainbow, One colour) on devices with ring lights, and *Feel the beat* taps (Off, Subtle, Strong) on devices with rumble. |
+| Voice search | Download or remove the offline speech engine (135 MB). |
+| TV mode | Pixel style (Retro, Arcade, Game Boy), and whether downloaded songs keep their pixel video for offline. |
 | Download limit | Cap offline downloads at 50 / 100 / 200 / 500 songs or 2 / 5 / 10 / 25 GB. Nothing is ever deleted without asking. |
 | Region | The country whose YouTube Music catalogue and charts you get. *Automatic* follows your system language. |
-| Music engine | Update the engine (yt-dlp) if songs stop loading after YouTube changes something. |
+| Music engine | The engine's version, and an *Update music engine* button as a backup (it updates itself, see below). |
 
 ## Troubleshooting
 
 - **"YouTube is busy right now"**: YouTube is temporarily limiting your internet connection, often after a lot of searching or downloading in a short time. Wait a few hours. Downloaded songs keep working in the meantime.
-- **Songs stop loading for everyone**: open ⚙ → **Update music engine**.
+- **"Couldn't set up the music engine"**: the first launch needs the internet once. Connect and press *Try again*.
+- **Songs stop loading after YouTube changes something**: the engine updates itself straight away and retries. If that can't fix it yet, open ⚙ → **Update music engine** later.
 - **Lights stuck on a colour**: turn *Controller lights* off and on again, or restart Decky. Your saved lighting is restored automatically at startup.
+
+## Performance and battery
+
+While music plays, Cuivar Pulse uses **about 1–3% of one CPU core** and **about 120 MB of RAM**, measured on a Legion Go S. Music adds roughly **0.5 W**, and the lights and Feel the beat make no measurable difference to battery. TV mode never runs while a game is open.
+Full numbers, method and how to measure it yourself: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Privacy
 
 Cuivar Pulse has no account, no analytics and no servers of its own. It talks only to YouTube
-Music (search, songs and artwork) and to GitHub (when you press *Update music engine*, and once
-to download voice search). Voice search listens only while you hold Y, and the recording is
-turned into text on your device and never uploaded. Your playlists, downloads and settings stay
-on your device.
+Music (search, songs, artwork and TV mode videos) and to GitHub (to download the music engine
+and voice search from their official releases, and to check for engine updates once a day).
+Voice search listens only while you hold Y, and the recording is turned into text on your device
+and never uploaded. Your playlists, downloads and settings stay on your device.
+
+The programs it runs (ffmpeg, PipeWire, yt-dlp) get only the environment variables they need
+(paths, language, audio), never the rest of yours, and nothing in Cuivar Pulse reads Steam
+login data, SSH keys or browser cookies.
+
+## What's in the release
+
+Every release is built by GitHub from the tagged source code
+([.github/workflows/release.yml](.github/workflows/release.yml)), not on anyone's computer.
+It's a single `CuivarPulse.zip` (about 0.5 MB) with a `SHA256SUMS` file next to it, and GitHub
+signs a [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)
+for it. The ZIP contains only:
+
+| In the ZIP | What it is | Where it comes from |
+|---|---|---|
+| `plugin.json`, `package.json` | Plugin name, version and description for Decky | This repository |
+| `main.py`, `cuivar/*.py` | The plugin's backend (player, library, lights, TV mode, voice search, engine setup) | This repository, as is |
+| `dist/index.js` | The panel you see in the Quick Access Menu | Built from `src/` by `npm run build` (Rollup) during the release; readable, not minified |
+| `py_modules/ytmusicapi`, `requests`, `urllib3`, `charset_normalizer`, `idna` | Python libraries for YouTube Music search | Unmodified from PyPI (versions in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)), committed in this repository |
+| `py_modules/certifi/__init__.py` | A few lines pointing HTTPS at the system's certificate store (instead of bundling certificates) | Written for Cuivar Pulse |
+| `LICENSE`, `README.md`, `THIRD-PARTY-NOTICES.md` | This documentation | This repository |
+
+No programs, no binaries, no compiled or packed code, and no source maps.
+
+**Downloaded on first launch** (into the plugin's data folder, `~/homebrew/data/CuivarPulse/`), each one checked before use:
+
+| Program | From | Checked against |
+|---|---|---|
+| yt-dlp: its pure-Python release (readable source, about 3 MB), run with the system's Python | [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases) | The `SHA2-256SUMS` file published with that release |
+| yt-dlp's official Linux build, *only if the system has no Python 3.10+* | Same | Same |
+| QuickJS-ng 0.18.0 (`qjs-linux-x86_64`), the JavaScript engine yt-dlp needs for YouTube | [github.com/quickjs-ng/quickjs/releases](https://github.com/quickjs-ng/quickjs/releases/tag/v0.18.0) | SHA-256 `85ded23b9fabe8c1644fc40a8d2bbdd71157affcbd807359c618cc717ee24d7d`, pinned in [cuivar/tools.py](cuivar/tools.py) |
+| Voice search, *only if you turn it on* | [sherpa-onnx releases](https://github.com/k2-fsa/sherpa-onnx/releases) | SHA-256 values pinned in [cuivar/voice.py](cuivar/voice.py) |
+
+yt-dlp is kept current: it checks for a new release once a day, and straight away if YouTube
+changes something. Every new version is checked against its published SHA-256, tried on a real
+video first, and the previous working version is kept, so an update can't break playback.
+
+**Check a download yourself:**
+
+```sh
+sha256sum -c SHA256SUMS                     # the ZIP matches the published checksum
+gh attestation verify CuivarPulse.zip --repo shikamaru2694/CuivarPulse   # and was built by this repository's workflow
+```
 
 ## Build from source
 
 Requires Node.js 18+ and Python 3.
 
 ```sh
-npm install
-npm run build          # frontend → dist/
-python scripts/package.py   # release ZIP → out/CuivarPulse-<version>.zip
+npm ci
+npm run build               # the panel → dist/index.js
+python scripts/package.py   # the ZIP → out/CuivarPulse.zip + out/SHA256SUMS
 ```
 
-`package.py` downloads yt-dlp and QuickJS from their official releases into `bin/` and checks
-their SHA-256 against `package.json` (`remote_binary`). Python libraries are vendored in
-`py_modules/`.
+`package.py` zips the committed source files plus the built panel, with fixed file dates, so the
+same commit gives the same ZIP. Releases are made by pushing a version tag (`git tag v1.1.0 &&
+git push --tags`); GitHub builds and publishes them.
 
 Project layout: `main.py` is the Decky backend; `cuivar/` holds the player (ffmpeg → PipeWire),
-the download engine, library, catalogue and lights; `src/` is the React frontend.
+the download engine and its setup (`tools.py`), library, catalogue, lights, TV mode (`video.py`)
+and voice search; `src/` is the React frontend.
 
 ## Licence
 

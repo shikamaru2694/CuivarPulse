@@ -17,7 +17,12 @@ SONG_STEPS = (50, 100, 200, 500)
 GB_STEPS = (2.0, 5.0, 10.0, 25.0)
 DEFAULT_SETTINGS = {"limitMode": "songs", "limitSongs": 200, "limitGB": 5.0, "region": "auto", "lights": True,
                     "lightColours": "artwork", "lightFixed": "#1a9fff",
-                    "haptics": "off"}
+                    "haptics": "off", "pixelVideo": False, "pixelSave": False,
+                    "pixelStyle": "retro"}
+LIGHT_COLOURS = ("artwork", "rainbow", "fixed")
+# Older choices, folded in: Video is part of Artwork, Energy part of Rainbow.
+OLD_LIGHT_COLOURS = {"video": "artwork", "energy": "rainbow"}
+PIXEL_STYLES = ("retro", "arcade", "gameboy")
 
 
 def _nearest(steps, value):
@@ -39,6 +44,16 @@ def _clean_track(track):
         "duration": track.get("duration") if isinstance(track.get("duration"), (int, float)) else None,
         "art": track.get("art") if isinstance(track.get("art"), str) else None,
     }
+
+
+def _light_colours(value):
+    value = OLD_LIGHT_COLOURS.get(value, value)
+    return value if value in LIGHT_COLOURS else "artwork"
+
+
+def _pixel_style(value):
+    value = "arcade" if value == "crisp" else value  # crisp = arcade without the scanlines; folded in
+    return value if value in PIXEL_STYLES else "retro"
 
 
 def _haptics_mode(value):
@@ -75,9 +90,12 @@ class Library:
             "limitGB": _nearest(GB_STEPS, saved["limitGB"]),
             "region": str(saved.get("region") or "auto")[:8],
             "lights": bool(saved.get("lights", True)),
-            "lightColours": saved["lightColours"] if saved.get("lightColours") in ("artwork", "energy", "rainbow", "fixed") else "artwork",
+            "lightColours": _light_colours(saved.get("lightColours")),
             "lightFixed": str(saved.get("lightFixed") or "#1a9fff")[:7],
             "haptics": _haptics_mode(saved.get("haptics")),
+            "pixelVideo": bool(saved.get("pixelVideo")),
+            "pixelSave": bool(saved.get("pixelSave")),
+            "pixelStyle": _pixel_style(saved.get("pixelStyle")),
         }
 
     def save(self):
@@ -111,10 +129,21 @@ class Library:
         self.save()
 
     def set_light_colours(self, mode, fixed):
-        if mode not in ("artwork", "energy", "rainbow", "fixed"):
+        if mode not in LIGHT_COLOURS:
             raise LibraryError("Unknown light colours.")
         self.data["settings"]["lightColours"] = mode
         self.data["settings"]["lightFixed"] = str(fixed or "#1a9fff")[:7]
+        self.save()
+
+    def set_pixel_video(self, on):
+        self.data["settings"]["pixelVideo"] = bool(on)
+        self.save()
+
+    def set_pixel_settings(self, save, style):
+        if style not in PIXEL_STYLES:
+            raise LibraryError("Unknown pixel style.")
+        self.data["settings"]["pixelSave"] = bool(save)
+        self.data["settings"]["pixelStyle"] = style
         self.save()
 
     def set_region(self, region):

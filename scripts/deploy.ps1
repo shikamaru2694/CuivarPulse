@@ -26,7 +26,7 @@ try {
   # root-owned on every start (it controls the plugin's permissions, so a
   # plugin must not be able to edit it). Changing it needs a manual sudo copy.
   $items = @("package.json", "main.py", "dist", "cuivar")
-  if ($Full) { $items += @("py_modules", "bin") }
+  if ($Full) { $items += @("py_modules") }
 
   ssh @ssh $Target "mkdir -p $dest" | Out-Null
   scp @ssh -q -r @items "${Target}:$dest/"

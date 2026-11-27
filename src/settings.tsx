@@ -3,7 +3,7 @@
 
 import { ModalRoot, showModal, SliderField, DropdownItem, ButtonItem, Field, ToggleField } from "@decky/ui";
 import { useEffect, useRef, useState, CSSProperties } from "react";
-import { api, HapticsMode, LibraryInfo, LightColours, LightSettings, Region, VoiceStatus, formatBytes, useLibrary } from "./api";
+import { api, HapticsMode, LibraryInfo, LightColours, LightSettings, PixelStyle, Region, VoiceStatus, formatBytes, useLibrary } from "./api";
 import { toast, openStaleReview } from "./modals";
 
 const s: Record<string, CSSProperties> = {
@@ -11,25 +11,45 @@ const s: Record<string, CSSProperties> = {
   section: { fontSize: 12, fontWeight: 700, letterSpacing: 1, opacity: 0.7, margin: "18px 0 4px", textTransform: "uppercase" },
   note: { fontSize: 12, opacity: 0.7, lineHeight: 1.4 },
   warn: { fontSize: 12, lineHeight: 1.4 },
-  scroll: { maxHeight: "70vh", overflowY: "auto", paddingRight: 4 },
 };
 
 export function openSettings() {
   showModal(<Settings />);
 }
 
+type Regions = { selected: string; auto: string; regions: Region[] };
+type EngineInfo = { version: string | null; lastError: { message: string } | null; kind?: "python" | "binary" | null };
+type Loaded = { lights: LightSettings | null; voice: VoiceStatus | null; regions: Regions | null; engine: EngineInfo | null };
+
+const settled = <T,>(result: PromiseSettledResult<T>) => (result.status === "fulfilled" ? result.value : null);
+
 function Settings({ closeModal }: { closeModal?: () => void }) {
   const [info] = useLibrary();
+  // Everything is loaded first and the sections appear together: Steam
+  // selects the first button that exists when the dialog opens, so sections
+  // popping in one by one left the controller on the last one, at the bottom.
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  useEffect(() => {
+    Promise.allSettled([api.getLights(), api.voiceStatus(), api.getRegions(), api.getEngine()])
+      .then(([lights, voice, regions, engine]) => setLoaded({
+        lights: settled(lights), voice: settled(voice), regions: settled(regions), engine: settled(engine),
+      }));
+  }, []);
   return (
     <ModalRoot onCancel={closeModal}>
       <div style={s.heading}>Cuivar Pulse settings</div>
-      <div style={s.scroll}>
-        <LightsSettings />
-        <VoiceSettings />
-        <StorageSettings info={info} />
-        <RegionSettings />
-        <EngineSettings />
-      </div>
+      {/* No scroll box of our own: Steam's dialog scrolls to whatever the
+          controller selects, but not inside a nested scroll area. */}
+      {!loaded || !info ? <div style={s.note}>Loading…</div> : (
+        <>
+          <LightsSettings initial={loaded.lights} />
+          <VoiceSettings initial={loaded.voice} />
+          <PixelSettings info={info} />
+          <StorageSettings info={info} />
+          <RegionSettings initial={loaded.regions} />
+          <EngineSettings initial={loaded.engine} />
+        </>
+      )}
     </ModalRoot>
   );
 }
@@ -38,15 +58,13 @@ function Settings({ closeModal }: { closeModal?: () => void }) {
 
 const COLOUR_OPTIONS: { data: LightColours; label: string }[] = [
   { data: "artwork", label: "Artwork" },
-  { data: "energy", label: "Energy" },
   { data: "rainbow", label: "Rainbow" },
   { data: "fixed", label: "One colour" },
 ];
 
 const COLOUR_HINTS: Record<LightColours, string> = {
-  artwork: "Colours from the song's artwork, moving to the next one at the big moments.",
-  energy: "Cool blues when the music is calm, warm reds when it gets intense.",
-  rainbow: "Slowly flows through every colour.",
+  artwork: "Colours from the song's artwork, moving on at the big moments. In TV mode they follow the video, like Ambilight.",
+  rainbow: "Flows through every colour: slowly when the song is calm, faster as it gets intense.",
   fixed: "Always the colour you pick.",
 };
 
@@ -74,9 +92,8 @@ const HAPTIC_HINTS: Record<HapticsMode, string> = {
   strong: "Every beat, with the drops hitting harder. Uses more battery.",
 };
 
-function LightsSettings() {
-  const [lights, setLights] = useState<LightSettings | null>(null);
-  useEffect(() => { api.getLights().then(setLights).catch(() => {}); }, []);
+function LightsSettings({ initial }: { initial: LightSettings | null }) {
+  const [lights, setLights] = useState<LightSettings | null>(initial);
   // Lights only on devices with ring lights (Legion Go S); taps on handhelds with rumble.
   if (!lights || (!lights.available && !lights.hapticsAvailable)) return null;
 
@@ -140,8 +157,8 @@ function LightsSettings() {
 
 // --- voice search ------------------------------------------------------------------
 
-function VoiceSettings() {
-  const [voice, setVoice] = useState<VoiceStatus | null>(null);
+function VoiceSettings({ initial }: { initial: VoiceStatus | null }) {
+  const [voice, setVoice] = useState<VoiceStatus | null>(initial);
   useEffect(() => {
     let alive = true;
     const poll = () => api.voiceStatus().then(v => {
@@ -168,6 +185,47 @@ function VoiceSettings() {
         : !voice.downloading && <ButtonItem layout="below" onClick={() => api.voicePrepare().then(setVoice)}>
             Download ({voice.sizeMb} MB)
           </ButtonItem>}
+    </>
+  );
+}
+
+// --- pixel video -------------------------------------------------------------------
+
+const PIXEL_STYLES: { data: PixelStyle; label: string; hint: string }[] = [
+  { data: "retro", label: "Retro", hint: "32 classic game colours with a light dither, like an old console game." },
+  { data: "arcade", label: "Arcade", hint: "The video's own colours in clean square pixels, with CRT scanlines in fullscreen." },
+  { data: "gameboy", label: "Game Boy", hint: "Four shades of green." },
+];
+
+type PixelDraft = { save: boolean; style: PixelStyle };
+
+function PixelSettings({ info }: { info: LibraryInfo | null }) {
+  const [draft, setDraft] = useState<PixelDraft | null>(
+    info ? { save: info.settings.pixelSave, style: info.settings.pixelStyle } : null);
+  useEffect(() => {
+    if (info) setDraft({ save: info.settings.pixelSave, style: info.settings.pixelStyle });
+  }, [info?.settings.pixelSave, info?.settings.pixelStyle]);
+  if (!draft) return null;
+  const save = (next: PixelDraft) => {
+    setDraft(next);
+    api.setPixelSettings(next.save, next.style).catch(() => {});
+  };
+  return (
+    <>
+      <div style={s.section}>TV mode</div>
+      <DropdownItem
+        label="Pixel style"
+        description={PIXEL_STYLES.find(o => o.data === draft.style)?.hint}
+        rgOptions={PIXEL_STYLES.map(({ data, label }) => ({ data, label }))}
+        selectedOption={draft.style}
+        onChange={option => save({ ...draft, style: option.data })}
+      />
+      <ToggleField
+        label="Save pixel video with downloads"
+        description="Downloaded songs also keep their small pixel video (about 1–2 MB each), so it plays offline."
+        checked={draft.save}
+        onChange={on => save({ ...draft, save: on })}
+      />
     </>
   );
 }
@@ -260,9 +318,8 @@ function StorageSettings({ info }: { info: LibraryInfo | null }) {
 
 // --- region ------------------------------------------------------------------------
 
-function RegionSettings() {
-  const [regions, setRegions] = useState<{ selected: string; auto: string; regions: Region[] } | null>(null);
-  useEffect(() => { api.getRegions().then(setRegions).catch(() => {}); }, []);
+function RegionSettings({ initial }: { initial: Regions | null }) {
+  const [regions, setRegions] = useState<Regions | null>(initial);
   if (!regions) return null;
 
   const autoName = regions.regions.find(r => r.code === regions.auto)?.name ?? regions.auto;
@@ -290,10 +347,9 @@ function RegionSettings() {
 
 // --- music engine (yt-dlp) ---------------------------------------------------------------
 
-function EngineSettings() {
-  const [engine, setEngine] = useState<{ version: string | null; lastError: { message: string } | null } | null>(null);
+function EngineSettings({ initial }: { initial: EngineInfo | null }) {
+  const [engine, setEngine] = useState<EngineInfo | null>(initial);
   const [updating, setUpdating] = useState(false);
-  useEffect(() => { api.getEngine().then(setEngine).catch(() => {}); }, []);
 
   const update = async () => {
     setUpdating(true);
@@ -301,7 +357,7 @@ function EngineSettings() {
     setUpdating(false);
     if (result.ok) {
       toast(result.message || "Music engine updated.");
-      setEngine({ version: result.version, lastError: null });
+      setEngine({ ...engine, version: result.version, lastError: null });
     } else {
       toast(result.error);
     }
@@ -312,10 +368,12 @@ function EngineSettings() {
       <div style={s.section}>Music engine</div>
       <Field
         label="Version"
-        description="If songs stop loading because YouTube changed something, updating the engine usually fixes it."
+        description="yt-dlp, from its official releases. It checks for updates once a day and updates itself when YouTube changes something; this button is a backup."
         bottomSeparator="none"
       >
-        <span style={{ fontSize: 13, opacity: 0.85 }}>{engine?.version ?? "…"}</span>
+        <span style={{ fontSize: 13, opacity: 0.85 }}>
+          {engine?.version ?? "not set up yet"}{engine?.kind === "binary" ? " (Linux build)" : ""}
+        </span>
       </Field>
       {engine?.lastError && <div style={{ ...s.warn, color: "#ffb4a8" }}>Last problem: {engine.lastError.message}</div>}
       <ButtonItem layout="below" onClick={update} disabled={updating}>

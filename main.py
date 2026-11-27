@@ -20,9 +20,12 @@ for path in (PLUGIN_DIR, os.path.join(PLUGIN_DIR, "py_modules")):
 
 from cuivar import catalog, lights  # noqa: E402
 from cuivar.engine import Engine, EngineError  # noqa: E402
+from cuivar.tools import Tools  # noqa: E402
+import certifi  # noqa: E402  (our stand-in: the system's certificate store)
 from cuivar.library import Library, LibraryError  # noqa: E402
 from cuivar.player import Player  # noqa: E402
 from cuivar.voice import Voice, VoiceError  # noqa: E402
+from cuivar.video import PixelVideo, SIZES  # noqa: E402
 
 SESSION_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "session.json")
 
@@ -37,13 +40,12 @@ def fail(message):
 
 class Plugin:
     async def _main(self):
-        bin_dir = os.path.join(PLUGIN_DIR, "bin")
-        self.engine = Engine(
-            decky.DECKY_PLUGIN_RUNTIME_DIR,
-            os.path.join(bin_dir, "yt-dlp_linux"),
-            js_runtime=f"quickjs:{Engine.runnable_copy(os.path.join(bin_dir, 'qjs'), decky.DECKY_PLUGIN_RUNTIME_DIR)}",
-        )
+        # The music engine (yt-dlp + QuickJS) isn't in the plugin ZIP: it's
+        # downloaded and checked on first launch, and kept current (cuivar/tools.py).
+        self.tools = Tools(decky.DECKY_PLUGIN_RUNTIME_DIR, decky.logger, on_change=self._emit_soon)
+        self.engine = Engine(decky.DECKY_PLUGIN_RUNTIME_DIR, self.tools)
         self.library = Library(decky.DECKY_PLUGIN_RUNTIME_DIR, decky.DECKY_PLUGIN_SETTINGS_DIR)
+        self.video = PixelVideo(self.engine, decky.DECKY_PLUGIN_RUNTIME_DIR, decky.logger)
         self.player = Player(self._song_ended)
         self.queue = []
         self.index = -1
@@ -66,7 +68,8 @@ class Plugin:
         self._restore_session()
         self.lights = lights.Lights(
             self.player, os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "lights-saved.json"), decky.logger,
-            art_lookup=lambda: (self._current() or {}).get("art"))
+            art_lookup=lambda: (self._current() or {}).get("art"),
+            video_lookup=lambda: self.video.colours((self._current() or {}).get("id")))
         settings = self.library.settings()
         self.lights.set_colours(settings["lightColours"], settings["lightFixed"])
         self.lights.set_enabled(settings["lights"])
@@ -77,15 +80,45 @@ class Plugin:
         self.tasks = [
             loop.create_task(self._tick()),
             loop.create_task(self._download_worker()),
-            loop.create_task(self.engine.adopt_newer_bundled()),
+            loop.create_task(self._engine_start()),
         ]
         decky.logger.info(f"Cuivar Pulse started (Python {sys.version.split()[0]})")
+
+    async def _engine_start(self):
+        """Set the music engine up (first launch), then the quiet daily update check."""
+        try:
+            # Decky Loader may already have its own certifi loaded (then that one is
+            # used, with its own certificates); otherwise it's our stand-in, which
+            # points to the system's certificate store.
+            if not os.path.isfile(certifi.where()):
+                looked = getattr(certifi, "PATHS", (certifi.where(),))
+                self.tools._set("error", "Couldn't find this system's security certificates, so Cuivar Pulse can't "
+                                         "connect safely. Looked in: " + ", ".join(looked))
+                decky.logger.error("no system certificate store found")
+                return
+            decky.logger.info(f"music engine: {'ready' if self.tools.ready else 'not set up yet'}"
+                              f" (yt-dlp {self.tools.version or 'none'})")
+            if await self.tools.start_setup():
+                await self.tools.check_daily(self._engine_busy)
+        except Exception:  # noqa: BLE001 - a background task: make sure problems are seen
+            decky.logger.exception("music engine start failed")
+
+    def _engine_busy(self):
+        """Is yt-dlp in use right now (a song, a download or a TV mode video being fetched)?"""
+        return bool(self.engine.inflight or self.downloading or self.video.jobs)
+
+    def _emit_soon(self):
+        try:
+            asyncio.get_running_loop().create_task(self._emit())
+        except RuntimeError:
+            pass
 
     async def _unload(self):
         self._save_session()
         for task in self.tasks:
             task.cancel()
         self.lights.shutdown()
+        self.video.shutdown()
         await self.voice.shutdown()
         self.engine.shutdown()
         await self.player.stop()
@@ -145,6 +178,9 @@ class Plugin:
             "shuffle": self.shuffle,
             "repeat": self.repeat,
             "volume": self.player.volume,
+            "pixelVideo": self.library.settings()["pixelVideo"],
+            "outputDelay": round(self.lights.delay, 3),
+            "engine": self.tools.public(),   # first-launch setup / updating / error
         }
 
     async def _emit(self):
@@ -328,6 +364,11 @@ class Plugin:
 
         if token != self.token:
             return  # another song was chosen meanwhile
+        if self.library.settings()["pixelVideo"] and self.video.viewer_present():
+            # TV mode on screen: the song starts together with its video.
+            await self._wait_for_video(track, path, token)
+            if token != self.token:
+                return
         self.loading = False
         await self.player.play(path, resume_at, track.get("duration"))
         self.lights.song_changed(path, track.get("art"))
@@ -335,6 +376,23 @@ class Plugin:
         self._save_session()
         await self._emit()
         upcoming = [t["id"] for t in self.queue[self.index + 1:self.index + 3] if not self.library.is_downloaded(t["id"])]
+        asyncio.get_running_loop().create_task(self._after_start(upcoming))
+
+    async def _wait_for_video(self, track, path, token, limit=90):
+        """Hold the song (loading ring) until its pixel video is ready or turns
+        out not to exist; give up waiting if TV mode leaves the screen, another
+        song is picked, or it takes longer than `limit` seconds."""
+        end = asyncio.get_running_loop().time() + limit
+        while asyncio.get_running_loop().time() < end and token == self.token and self.video.viewer_present():
+            if self.video.watch(track, path)["state"] in ("ready", "none", "idle"):
+                return
+            await asyncio.sleep(0.5)
+
+    async def _after_start(self, upcoming):
+        """Music just started: the quiet daily engine check if it's due (before
+        pre-loading the next songs, so it has yt-dlp to itself), then pre-load."""
+        if self.tools.due_for_check() and not self._engine_busy():
+            await self.tools.check_daily(self._engine_busy)
         self.engine.prefetch(upcoming)
 
     async def _song_ended(self):
@@ -383,7 +441,7 @@ class Plugin:
             "downloads": len(self.library.data["downloads"]),
             "settings": self.library.settings(),
             "usage": self.library.usage(),
-            "cacheBytes": self.engine.cache_bytes(),
+            "cacheBytes": self.engine.cache_bytes() + self.video.bytes(kept=False),
         }
 
     async def get_playlist(self, playlist_id):
@@ -464,6 +522,7 @@ class Plugin:
     async def remove_downloads(self, video_ids):
         for video_id in video_ids:
             self.library.remove_download(video_id)
+            self.video.set_kept(video_id, False)
         await self._emit_library()
         await self._emit()
         return ok()
@@ -496,6 +555,10 @@ class Plugin:
                 source = self.engine.release(track["id"])
                 if source:
                     self.library.add_download(track, source)
+                    settings = self.library.settings()
+                    if settings["pixelSave"]:
+                        # Opted in: keep the small pixel video with the download too.
+                        self.video.watch(track, self.library.downloaded_path(track["id"]), keep=True)
             except EngineError as error:
                 await self._notice(f"Could not download “{track.get('title', 'song')}”: {error}")
                 if error.code == "BLOCKED":
@@ -568,7 +631,13 @@ class Plugin:
         return ok(region=catalog.effective_region())
 
     async def get_engine(self):
-        return {"version": await self.engine.version(), "lastError": self.engine.last_error}
+        return {"version": await self.engine.version(), "lastError": self.engine.last_error, **self.tools.public()}
+
+    async def engine_setup(self):
+        """Retry button for a first-launch setup that failed (e.g. no internet)."""
+        self.tools.start_setup()
+        await asyncio.sleep(0)
+        return self.tools.public()
 
     async def update_engine(self):
         try:
@@ -580,6 +649,7 @@ class Plugin:
     async def clear_cache(self):
         current = self._current()
         self.engine.clear(keep={current["id"]} if current else set())
+        self.video.clear(keep={current["id"]} if current else set())
         await self._emit_library()
         return ok()
 
@@ -607,3 +677,44 @@ class Plugin:
         except (VoiceError, OSError) as error:
             return fail(str(error) if isinstance(error, VoiceError) else "Voice search failed.")
         return ok(text=text) if text else fail("Didn't catch that. Hold Y and try again.")
+
+    # --- pixel video ---------------------------------------------------------------------
+
+    async def pixel_watch(self, track_id):
+        """The panel shows the current song's pixel video (disc or Pixel TV) and
+        asks every few seconds; work stops soon after it stops asking."""
+        self.video.viewer_seen()  # even for a song that just changed: someone is watching
+        track = self._current()
+        if not track or track["id"] != track_id:
+            return {"state": "idle"}
+        path = self.library.downloaded_path(track["id"]) or self.engine.cached(track["id"])
+        status = self.video.watch(track, path, by_panel=True)
+        wanted = {track["id"]}
+        # Get the next song's video ready too, so it can start without a wait.
+        upcoming = self.queue[self.index + 1] if self.index + 1 < len(self.queue) else None
+        if status["state"] in ("ready", "none") and upcoming:
+            next_path = self.library.downloaded_path(upcoming["id"]) or self.engine.cached(upcoming["id"])
+            if next_path:
+                self.video.watch(upcoming, next_path)
+                wanted.add(upcoming["id"])
+        self.video.cancel_others(wanted)
+        return status
+
+    async def pixel_get(self, track_id, size):
+        """The pixel video for the panel (Medium) or fullscreen (Fine)."""
+        size = size if size in SIZES else SIZES[0]
+        data = await asyncio.to_thread(self.video.read, str(track_id), size)
+        return ok(data=data, size=size) if data else fail("No pixel video.")
+
+    async def set_pixel_video(self, on):
+        self.library.set_pixel_video(on)
+        await self._emit()
+        return ok(on=self.library.settings()["pixelVideo"])
+
+    async def set_pixel_settings(self, save, style):
+        try:
+            self.library.set_pixel_settings(save, style)
+        except LibraryError as error:
+            return fail(str(error))
+        await self._emit_library()
+        return ok(settings=self.library.settings())

@@ -32,10 +32,21 @@ export type PlayerState = {
   shuffle: boolean;
   repeat: "off" | "all" | "one";
   volume: number;
+  pixelVideo: boolean;   // TV mode (vs Music mode)
+  outputDelay: number;   // seconds until the sound is heard (Bluetooth ~0.2)
+  engine: EngineStatus;
 };
+// The music engine (yt-dlp + QuickJS), downloaded on first launch and kept current.
+export type EngineStatus = {
+  state: "ready" | "setting_up" | "updating" | "error"; progress: number; message: string | null;
+  version: string | null; kind: "python" | "binary" | null;
+};
+export type PixelSize = 64 | 96;  // Medium (panel) / Fine (fullscreen)
+export type PixelStyle = "retro" | "arcade" | "gameboy";
+export type PixelStatus = { state: "idle" | "finding" | "fetching" | "preparing" | "ready" | "none" };
 export type Region = { code: string; name: string };
 export type HapticsMode = "off" | "subtle" | "strong";
-export type LightColours = "artwork" | "energy" | "rainbow" | "fixed";
+export type LightColours = "artwork" | "rainbow" | "fixed";
 export type LightSettings = {
   available: boolean; enabled: boolean; colours: LightColours; fixed: string;
   hapticsAvailable: boolean; haptics: HapticsMode;
@@ -45,7 +56,10 @@ export type VoiceStatus = {
 };
 export type PlaylistSummary = { id: string; name: string; count: number; downloaded: number; art: string | null };
 export type Playlist = { id: string; name: string; tracks: Track[] };
-export type Settings = { limitMode: "songs" | "storage"; limitSongs: number; limitGB: number; region: string };
+export type Settings = {
+  limitMode: "songs" | "storage"; limitSongs: number; limitGB: number; region: string;
+  pixelSave: boolean; pixelStyle: PixelStyle;
+};
 export type Usage = { songs: number; bytes: number; ratio: number; nearLimit: boolean; staleCount: number };
 export type LibraryInfo = { playlists: PlaylistSummary[]; downloads: number; settings: Settings; usage: Usage; cacheBytes: number };
 export type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -96,6 +110,11 @@ export const api = {
   voiceStart: callable<[], Result>("voice_start"),
   voiceStop: callable<[], Result<{ text: string }>>("voice_stop"),
   setLightColours: callable<[LightColours, string], Result<LightSettings>>("set_light_colours"),
+  engineSetup: callable<[], EngineStatus>("engine_setup"),
+  pixelWatch: callable<[string], PixelStatus>("pixel_watch"),
+  pixelGet: callable<[string, PixelSize], Result<{ data: string; size: PixelSize }>>("pixel_get"),
+  setPixelVideo: callable<[boolean], Result<{ on: boolean }>>("set_pixel_video"),
+  setPixelSettings: callable<[boolean, PixelStyle], Result<{ settings: Settings }>>("set_pixel_settings"),
 
 };
 

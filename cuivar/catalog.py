@@ -96,3 +96,38 @@ def radio(video_id):
     """YouTube Music's automatic 'up next' mix for a song."""
     data = client().get_watch_playlist(videoId=str(video_id), limit=50)
     return [t for t in (_track(item) for item in data.get("tracks") or []) if t]
+
+
+# Words that mean a different recording than the song itself.
+_OTHER_VERSION = re.compile(r"remix|cover|live|acoustic|8d|slowed|sped.?up|nightcore|karaoke|instrumental", re.I)
+
+
+def _plain(text):
+    """Title without brackets and punctuation, for comparing."""
+    text = re.sub(r"[\(\[].*?[\)\]]", " ", str(text or "")).lower()
+    return " ".join(re.sub(r"[^\w\s]", " ", text).split())
+
+
+def video_candidates(track, limit=3):
+    """Video ids that may be this song's music video, best first: uploads by
+    the song's own artist whose title names the song. Lyric videos and still
+    images are weeded out later (by their real title and by their frames)."""
+    artists = {a["name"].lower() for a in track.get("artists") or [] if a.get("name")}
+    title = _plain(track.get("title"))
+    if not artists or not title:
+        return []
+    first = next(a["name"] for a in track["artists"] if a.get("name"))
+    found = []
+    for item in client().search(f"{track['title']} {first}", filter="videos", limit=10):
+        names = {a.get("name", "").lower() for a in item.get("artists") or []}
+        candidate = item.get("title") or ""
+        if not item.get("videoId") or item["videoId"] == track.get("id") or not artists & names:
+            continue
+        if title not in _plain(candidate):
+            continue
+        if _OTHER_VERSION.search(candidate) and not _OTHER_VERSION.search(track.get("title") or ""):
+            continue
+        found.append(item["videoId"])
+        if len(found) == limit:
+            break
+    return found

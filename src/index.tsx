@@ -2,7 +2,7 @@
 // Shows what the background player is doing and sends it commands. The
 // player keeps running when this panel closes or a game is in front.
 
-import { definePlugin, addEventListener, removeEventListener } from "@decky/api";
+import { definePlugin, addEventListener, removeEventListener, routerHook, useQuickAccessVisible } from "@decky/api";
 import {
   PanelSection, PanelSectionRow, SliderField, TextField, Focusable, DialogButton, ButtonItem, Field,
   staticClasses, GamepadButton, ConfirmModal, showModal,
@@ -11,9 +11,10 @@ import { useEffect, useRef, useState, CSSProperties } from "react";
 import { FaMusic, FaDownload, FaCheck, FaListUl, FaPlus, FaCog } from "react-icons/fa";
 import {
   MdRepeat, MdRepeatOne, MdShuffle, MdSkipPrevious, MdSkipNext, MdPlayArrow, MdPause, MdPlaylistAdd,
-  MdDownload, MdDownloadDone, MdDownloading, MdVolumeUp, MdVolumeOff, MdMic,
+  MdDownload, MdDownloadDone, MdDownloading, MdVolumeUp, MdVolumeOff, MdMic, MdTv, MdMusicNote, MdFullscreen,
 } from "react-icons/md";
 import { Disc } from "./disc";
+import { Fullscreen, FULLSCREEN_ROUTE, PANEL_SIZE, PixelScreen, gameRunning, openFullscreen, usePixelVideo } from "./pixel";
 import { api, Track, PlayerState, LibraryInfo, artistNames, formatTime, formatBytes, usePlayerState, useLibrary } from "./api";
 import {
   TrackLine, toast, openSongOptions, openAddToPlaylist, openNewPlaylist, openPlaylist, openDownloads,
@@ -31,7 +32,9 @@ const styles: Record<string, CSSProperties> = {
   nowArtist: { fontSize: 14, opacity: 0.7, maxWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   times: { display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.7, width: "100%", paddingBottom: 4 },
   controls: { display: "flex", gap: 6, width: "100%", justifyContent: "space-between", alignItems: "center", padding: "4px 4px 0" },
-  actionsRow: { display: "flex", gap: 10, width: "100%", justifyContent: "center", marginTop: 6, padding: "0 4px" },
+  // Playlist | Music/TV switch (right under the play button) | Fullscreen, Download
+  actionsRow: { display: "flex", alignItems: "center", width: "100%", marginTop: 4, padding: "0 4px", boxSizing: "border-box" },
+  actionSide: { flex: 1, display: "flex", justifyContent: "space-evenly", alignItems: "center" },
   timeTop: { width: "100%", textAlign: "center", fontSize: 13, letterSpacing: 0.5, fontVariantNumeric: "tabular-nums", opacity: 0.85 },
   more: { fontSize: 12 },
   control: { minWidth: 0, flex: 1, height: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 },
@@ -53,6 +56,13 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13, boxShadow: "0 4px 14px rgba(0,0,0,0.4)",
   },
   voiceMic: { display: "flex", color: "#1a9fff", animation: "cuivar-listen 1s ease-in-out infinite" },
+  modeSwitch: {
+    display: "flex", width: 92, height: 36, padding: 2, gap: 2, borderRadius: 18, boxSizing: "border-box", flexShrink: 0,
+    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,206,110,0.35)",
+    boxShadow: "0 0 10px rgba(255,196,80,0.22), inset 0 0 6px rgba(255,196,80,0.08)",  // faint golden glow
+  },
+  modeBusy: { display: "flex", animation: "cuivar-listen 1s ease-in-out infinite" },
+  engineSpin: { display: "inline-flex", verticalAlign: -2, marginRight: 6, animation: "cuivar-listen 1s ease-in-out infinite" },
   gear: { minWidth: 0, width: 40, height: 32, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" },
 };
 
@@ -78,8 +88,8 @@ function TrackRow({ track, onPlay, downloaded }: { track: Track; onPlay: () => v
 // Round / pill buttons in the now-playing design. They have custom
 // backgrounds, which hide Steam's usual focus colour, so they draw their own
 // focus ring when the controller lands on them.
-function DesignButton({ kind, active = true, disabled, label, onClick, children }: {
-  kind: "round" | "main" | "pill"; active?: boolean; disabled?: boolean; label: string;
+function DesignButton({ kind, active = true, selected = false, disabled, label, onClick, children }: {
+  kind: "round" | "main" | "pill" | "icon" | "segment"; active?: boolean; selected?: boolean; disabled?: boolean; label: string;
   onClick: () => void; children: React.ReactNode;
 }) {
   const [focused, setFocused] = useState(false);
@@ -93,13 +103,22 @@ function DesignButton({ kind, active = true, disabled, label, onClick, children 
     main: { width: 54, height: 54, borderRadius: 27, background: "#ffffff", color: "#111111", fontSize: 30 },
     pill: {
       flex: 1, height: 36, borderRadius: 18, gap: 6, fontSize: 13, color: "#ffffff",
+      background: selected ? "rgba(26,159,255,0.28)" : "rgba(255,255,255,0.06)",
+      border: selected ? "1px solid #1a9fff" : "1px solid rgba(255,255,255,0.22)", opacity: disabled ? 0.6 : 1,
+    },
+    icon: {
+      width: 40, height: 36, borderRadius: 18, color: "#ffffff", fontSize: 20,
       background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.22)", opacity: disabled ? 0.6 : 1,
+    },
+    segment: {
+      flex: 1, height: "100%", borderRadius: 16, fontSize: 18, color: "#ffffff",
+      background: selected ? "rgba(255,210,120,0.22)" : "transparent", opacity: selected ? 1 : 0.5,
     },
   };
   // Focus events bubble up to this wrapper (DialogButton doesn't take them).
   return (
     <div
-      style={{ display: "flex", flex: kind === "pill" ? 1 : "0 0 auto" }}
+      style={{ display: "flex", flex: kind === "pill" || kind === "segment" ? 1 : "0 0 auto" }}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
@@ -137,6 +156,11 @@ function NowPlaying({ state }: { state: PlayerState }) {
   // player confirms (so the dot doesn't jump back for a moment).
   const [dragSeconds, setDragSeconds] = useState<number | null>(null);
   const [pendingSeek, setPendingSeek] = useState<number | null>(null);
+  // TV mode: pixel video only while the menu is actually open (no work in the background).
+  const menuOpen = useQuickAccessVisible();
+  const tvMode = state.pixelVideo;
+  const pixel = usePixelVideo(state, tvMode && menuOpen, PANEL_SIZE);
+  const [info] = useLibrary();
   useEffect(() => {
     if (pendingSeek !== null && Math.abs(state.position - pendingSeek) < 3) setPendingSeek(null);
   }, [state.position]);
@@ -147,6 +171,14 @@ function NowPlaying({ state }: { state: PlayerState }) {
   const duration = Math.max(1, Math.round(state.duration || track.duration || 0));
   const position = dragSeconds ?? pendingSeek ?? Math.min(duration, state.position);
   const downloading = state.downloadingId === track.id || state.pendingIds.includes(track.id);
+  const setMode = (tv: boolean) => {
+    if (tv === tvMode) return;
+    if (tv && gameRunning()) {
+      toast("TV mode works when you're not in a game, to save battery.");
+      return;
+    }
+    api.setPixelVideo(tv);
+  };
 
   return (
     <>
@@ -162,6 +194,11 @@ function NowPlaying({ state }: { state: PlayerState }) {
           onSeek={seconds => { setPendingSeek(seconds); api.seek(seconds); }}
           onSeekBy={delta => api.seekBy(delta)}
           onSecondary={() => openSongOptions(track)}
+          shape={tvMode ? "rect" : "circle"}
+          screen={tvMode ? (
+            <PixelScreen src={pixel.src} art={track.art} state={state}
+              style={info?.settings.pixelStyle ?? "retro"} size={PANEL_SIZE} />
+          ) : undefined}
         />
       </PanelSectionRow>
       <PanelSectionRow>
@@ -192,19 +229,36 @@ function NowPlaying({ state }: { state: PlayerState }) {
       </PanelSectionRow>
       <PanelSectionRow>
         <Focusable style={styles.actionsRow} flow-children="horizontal">
-          <DesignButton kind="pill" label="Add to playlist" onClick={() => openAddToPlaylist(track)}>
-            <MdPlaylistAdd size={18} />Playlist
-          </DesignButton>
-          <DesignButton
-            kind="pill"
-            label="Download"
-            disabled={state.downloaded || downloading}
-            onClick={() => api.downloadTracks([track]).then(r => r.ok && toast("Downloading for offline…"))}
-          >
-            {state.downloaded
-              ? <><MdDownloadDone size={18} />Offline</>
-              : downloading ? <><MdDownloading size={18} />Downloading…</> : <><MdDownload size={18} />Download</>}
-          </DesignButton>
+          <div style={styles.actionSide}>
+            <DesignButton kind="round" label="Add to playlist" onClick={() => openAddToPlaylist(track)}>
+              <MdPlaylistAdd />
+            </DesignButton>
+          </div>
+          <Focusable style={styles.modeSwitch} flow-children="horizontal">
+            <DesignButton kind="segment" label="Music mode" selected={!tvMode} onClick={() => setMode(false)}>
+              <MdMusicNote />
+            </DesignButton>
+            <DesignButton kind="segment" label="TV mode" selected={tvMode} onClick={() => setMode(true)}>
+              <span style={pixel.busy ? styles.modeBusy : { display: "flex" }}><MdTv /></span>
+            </DesignButton>
+          </Focusable>
+          <div style={styles.actionSide}>
+            <DesignButton kind="round" label="Fullscreen" onClick={() => {
+              if (tvMode && gameRunning()) toast("TV mode works when you're not in a game, to save battery.");
+              else openFullscreen();
+            }}>
+              <MdFullscreen />
+            </DesignButton>
+            <DesignButton
+              kind="round"
+              label={state.downloaded ? "Downloaded" : downloading ? "Downloading" : "Download"}
+              active={!downloading}
+              disabled={state.downloaded || downloading}
+              onClick={() => api.downloadTracks([track]).then(r => r.ok && toast("Downloading for offline…"))}
+            >
+              {state.downloaded ? <MdDownloadDone /> : downloading ? <MdDownloading /> : <MdDownload />}
+            </DesignButton>
+          </div>
         </Focusable>
       </PanelSectionRow>
       {state.error && <PanelSectionRow><div style={styles.error}>{state.error}</div></PanelSectionRow>}
@@ -428,6 +482,7 @@ function Panel() {
           <span>{voice.banner}</span>
         </div>
       )}
+      {state && state.engine.state !== "ready" && <EngineBanner engine={state.engine} />}
       <PanelSection>
         <Focusable style={styles.tabBar} flow-children="horizontal">
           {([["player", "Player"], ["library", "Library"]] as const).map(([id, title]) => (
@@ -437,6 +492,30 @@ function Panel() {
       </PanelSection>
       {tab === "player" ? <PlayerTab state={state} spoken={voice.spoken} /> : <Library info={info} state={state} />}
     </Focusable>
+  );
+}
+
+// First launch downloads the music engine; it also updates itself when
+// YouTube changes something. Shown at the top of the panel while that happens.
+function EngineBanner({ engine }: { engine: PlayerState["engine"] }) {
+  const text = engine.state === "setting_up"
+    ? `Setting up music engine… ${Math.round(engine.progress * 100)}%`
+    : engine.state === "updating" ? "Updating music engine…"
+    : engine.message || "The music engine isn't working.";
+  return (
+    <PanelSection>
+      <PanelSectionRow>
+        <div style={engine.state === "error" ? styles.warn : styles.note}>
+          {engine.state !== "error" && <span style={styles.engineSpin}><MdDownloading size={14} /></span>}
+          {text}
+        </div>
+      </PanelSectionRow>
+      {engine.state === "error" && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => api.engineSetup()}>Try again</ButtonItem>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
   );
 }
 
@@ -553,9 +632,16 @@ function TitleBar() {
 }
 
 
-export default definePlugin(() => ({
-  name: "Cuivar Pulse",
-  titleView: <TitleBar />,
-  content: <Panel />,
-  icon: <FaMusic />,
-}));
+export default definePlugin(() => {
+  // Fullscreen (Music: the artwork, TV: the pixel video) is its own page.
+  routerHook.addRoute(FULLSCREEN_ROUTE, Fullscreen, { exact: true });
+  return {
+    name: "Cuivar Pulse",
+    titleView: <TitleBar />,
+    content: <Panel />,
+    icon: <FaMusic />,
+    onDismount() {
+      routerHook.removeRoute(FULLSCREEN_ROUTE);
+    },
+  };
+});

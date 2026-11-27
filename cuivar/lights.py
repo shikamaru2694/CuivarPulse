@@ -211,6 +211,18 @@ def _levels(norm, loud, hits, strong, drops, builds=()):
     return levels
 
 
+def rainbow_hues(energy):
+    """Rainbow position for every frame: the colour moves on faster the more
+    intense the music is (from one trip round in RAINBOW_CALM seconds to one in
+    RAINBOW_INTENSE). Worked out once per song, so seeking lands on the right colour."""
+    hues, hue = [], 0.0
+    for e in energy:
+        seconds_per_trip = RAINBOW_CALM + (RAINBOW_INTENSE - RAINBOW_CALM) * min(max(e, 0.0), 1.0)
+        hue += 1.0 / (seconds_per_trip * FPS)
+        hues.append(hue % 1.0)
+    return hues
+
+
 def palette_for(art_url):
     """Up to 3 vivid, clearly different colours from the artwork (strongest first)."""
     if not art_url:
@@ -277,7 +289,12 @@ def with_partner(palette):
     return palette
 
 
-COLOUR_MODES = ("artwork", "energy", "rainbow", "fixed")
+COLOUR_MODES = ("artwork", "rainbow", "fixed")
+# Rainbow: one trip round the colours takes this long when the song is calm...
+RAINBOW_CALM = 40.0
+# ...and this long at its most intense.
+RAINBOW_INTENSE = 5.0
+VIDEO_FPS = 12  # pixel video light colours: one per 1/12 s
 FADE = FPS // 2  # artwork colour changes cross-fade over half a second
 
 
@@ -421,8 +438,10 @@ _rumble = None
 # --- driver ---------------------------------------------------------------------------------
 
 class Lights:
-    def __init__(self, player, state_file, logger=None, art_lookup=None):
+    def __init__(self, player, state_file, logger=None, art_lookup=None, video_lookup=None):
         self.player = player
+        # "Video" light colours: the current song's pixel video colours, if it has one.
+        self.video_lookup = video_lookup or (lambda: None)
         self.art_lookup = art_lookup or (lambda: None)  # artwork URL of the current song
         self.state_file = state_file  # the user's own lighting, while we hold the rings
         self.logger = logger
@@ -435,6 +454,7 @@ class Lights:
         self.beats = []
         self.levels = []
         self.energy = []
+        self.hue = []                 # rainbow position per frame (0-1 = once round)
         self.changes = []
         self.palette = [FALLBACK]
         self.mode = "artwork"
@@ -506,6 +526,7 @@ class Lights:
             return
         if path == self.song:
             self.energy = result["energy"]
+            self.hue = rainbow_hues(self.energy)
             self.changes = result["changes"]
             self.taps = result["taps"]
             self.beats = result["beats"]
@@ -608,11 +629,25 @@ class Lights:
         if self.mode == "fixed":
             return self.fixed
         if self.mode == "rainbow":
-            return _hsv(position / 24.0)  # once round the rainbow every 24 s
-        if self.mode == "energy":
-            # Calm = blue/purple, intense = orange/red.
-            e = self.energy[index] if index < len(self.energy) else 0.5
-            return _hsv(0.70 - 0.70 * e)
+            # Flows round the colours, faster as the song gets more intense.
+            if index < len(self.hue):
+                return _hsv(self.hue[index])
+            return _hsv(position / 24.0)  # before the song is analysed: a steady pace
+        # Artwork: a song with a TV mode video follows the video's colours
+        # (like Ambilight); otherwise the artwork's.
+        colours = self.video_lookup()
+        if colours:
+            # Average a few frames either side (~0.4 s) so cuts blend instead of flickering.
+            frame = int(position * VIDEO_FPS)
+            near = colours[max(0, frame - 2):frame + 3] or colours[-1:]
+            r, g, b = (sum(c[k] for c in near) / len(near) for k in range(3))
+            h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+            if s < 0.15:
+                return _mix(self._artwork(index), (int(r), int(g), int(b)), 0.3)  # grey scene: lean on the artwork
+            return _hsv(h, min(1.0, s * 1.4), 1.0)  # LEDs need it vivid and bright
+        return self._artwork(index)
+
+    def _artwork(self, index):
         # Artwork: step through the palette at each big moment, cross-fading.
         palette = self.palette
         if len(palette) == 1:

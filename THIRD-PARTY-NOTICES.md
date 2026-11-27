@@ -3,11 +3,11 @@
 Cuivar Pulse is licensed under the GNU General Public License v3.0 (see `LICENSE`).
 It includes or downloads the following open-source software, each under its own licence.
 
-## Programs (downloaded at build time from their official releases)
+## The music engine (downloaded on first launch from the official releases, not shipped in the plugin)
 
 | Software | Version | Licence | Source |
 |---|---|---|---|
-| yt-dlp | 2026.10.26 | The Unlicense (public domain) | https://github.com/yt-dlp/yt-dlp |
+| yt-dlp (its pure-Python release; the Linux build only if no system Python 3.10+) | latest, kept current | The Unlicense (public domain) | https://github.com/yt-dlp/yt-dlp |
 | QuickJS-ng (`qjs`) | 0.18.0 | MIT | https://github.com/quickjs-ng/quickjs |
 
 ## Voice search (downloaded on first use from the official sherpa-onnx releases, not shipped in the plugin)
@@ -29,7 +29,9 @@ PipeWire's `pw-record` (part of SteamOS) records the microphone while Y is held.
 | urllib3 | 2.8.0 | MIT |
 | charset-normalizer | 3.5.2 | MIT |
 | idna | 3.20 | BSD-3-Clause |
-| certifi | 2026.10.23 | MPL-2.0 |
+
+`py_modules/certifi/` is **not** the certifi package: it's a few lines written for Cuivar Pulse
+(GPL-3.0, like the rest of the plugin) that point `requests` at the system's own certificate store.
 
 ## Frontend (bundled into `dist/index.js`)
 
@@ -41,6 +43,7 @@ PipeWire's `pw-record` (part of SteamOS) records the microphone while Y is held.
 ## Used from the system (not shipped)
 
 ffmpeg and PipeWire (`pw-cat`, `pactl`) come with SteamOS and are only called as separate programs.
+Python 3 (to run yt-dlp) and the certificate store (for HTTPS) also come with the operating system.
 
 ## Not affiliated
 

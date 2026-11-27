@@ -1,19 +1,22 @@
-"""Downloads songs with yt-dlp into a local cache (same approach as Cuivar
-Music on Windows: direct YouTube stream URLs get refused mid-song without
-anti-bot tokens; whole-file downloads through yt-dlp are reliable)."""
+"""Downloads songs with yt-dlp into a local cache (direct YouTube stream URLs
+get refused mid-song without anti-bot tokens; whole-file downloads through
+yt-dlp are reliable). yt-dlp itself is set up and kept current by tools.py;
+when YouTube changes something, the engine updates it and tries once more."""
 
 import asyncio
 import json
 import os
 import re
-import shutil
 import time
 
 from . import child_env
+from .tools import ToolsError
 
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 CACHE_LIMIT = 1024 * 1024 * 1024  # ~220 songs
 TIMEOUT = 120
+# Upload titles that aren't a real music video (for pixel video).
+NOT_A_VIDEO = r"(?i)lyric|letra|visuali[sz]er|\baudio\b|karaoke|slowed|reverb|sped.?up|nightcore|\b8d\b"
 
 
 class EngineError(Exception):
@@ -29,25 +32,18 @@ def classify(stderr):
     if re.search(r"Video unavailable|not available|private video|removed", stderr, re.I):
         return EngineError("UNAVAILABLE", "This song is not available.")
     if re.search(r"HTTP Error 403|Requested format is not available|Unable to extract|nsig|signature", stderr, re.I):
-        return EngineError("ENGINE_OUTDATED", "YouTube changed something. The music engine needs an update.")
+        return EngineError("ENGINE_OUTDATED", "YouTube changed something and the music engine couldn't update itself yet. "
+                                              "Try Update music engine in Settings, or try again later.")
     if re.search(r"getaddrinfo|timed out|Connection|Network", stderr, re.I):
         return EngineError("OFFLINE", "Could not reach YouTube Music.")
     return EngineError("FAILED", "This song could not be loaded.")
 
 
 class Engine:
-    def __init__(self, data_dir, bundled_ytdlp, js_runtime=None):
+    def __init__(self, data_dir, tools):
         self.cache_dir = os.path.join(data_dir, "cache")
         self.index_file = os.path.join(data_dir, "cache.json")
-        # yt-dlp runs from the plugin's data folder (owned by the user), so it
-        # can update itself; a store install puts the plugin in a root folder.
-        self.bundled = bundled_ytdlp
-        self.ytdlp = os.path.join(data_dir, "bin", "yt-dlp_linux")
-        if not os.path.exists(self.ytdlp) and os.path.exists(bundled_ytdlp):
-            os.makedirs(os.path.dirname(self.ytdlp), exist_ok=True)
-            shutil.copy2(bundled_ytdlp, self.ytdlp)
-            os.chmod(self.ytdlp, 0o755)
-        self.js_runtime = js_runtime
+        self.tools = tools  # yt-dlp and QuickJS: downloaded, checked, kept current
         os.makedirs(self.cache_dir, exist_ok=True)
 
         try:
@@ -57,28 +53,6 @@ class Engine:
             self.index = {}
         self.inflight = {}
         self.last_error = None
-
-    @staticmethod
-    def runnable_copy(bundled, data_dir):
-        """A copy of a bundled program in the data folder, marked runnable.
-        Plugin ZIPs don't keep Linux 'executable' permissions, and a store
-        install's plugin folder belongs to root, so we can't fix it in place.
-        Refreshed whenever the bundled file changes (plugin updates)."""
-        target = os.path.join(data_dir, "bin", os.path.basename(bundled))
-        if not os.path.exists(bundled):
-            return bundled
-        try:
-            fresh = (not os.path.exists(target)
-                     or os.path.getsize(target) != os.path.getsize(bundled)
-                     or os.path.getmtime(target) < os.path.getmtime(bundled))
-            if fresh:
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                shutil.copy2(bundled, target)
-            if not os.access(target, os.X_OK):
-                os.chmod(target, 0o755)
-            return target
-        except OSError:
-            return bundled
 
     def _save(self):
         tmp = self.index_file + ".tmp"
@@ -117,8 +91,12 @@ class Engine:
             task.add_done_callback(lambda t: t.cancelled() or t.exception())
 
     async def _run(self, args, timeout=TIMEOUT):
+        try:
+            await self.tools.wait_ready()  # first launch: the engine is still being set up
+        except ToolsError as error:
+            raise EngineError("SETUP", str(error))
         proc = await asyncio.create_subprocess_exec(
-            self.ytdlp, *args,
+            *self.tools.command(), *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env(),
         )
         try:
@@ -131,10 +109,25 @@ class Engine:
             raise
         return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
+    async def _self_fixing(self, attempt):
+        """Runs `attempt`; if YouTube changed something, updates yt-dlp right away
+        (checked and tried first, see tools.py) and tries once more."""
+        try:
+            return await attempt()
+        except EngineError as error:
+            if error.code != "ENGINE_OUTDATED" or not await self.tools.auto_update():
+                raise
+        return await attempt()
+
+    def _js(self):
+        runtime = self.tools.js_runtime()
+        return ["--js-runtimes", runtime] if runtime else []
+
     async def _download(self, video_id):
-        args = []
-        if self.js_runtime:
-            args += ["--js-runtimes", self.js_runtime]
+        return await self._self_fixing(lambda: self._download_once(video_id))
+
+    async def _download_once(self, video_id):
+        args = self._js()
         args += [
             "-f", "bestaudio[ext=webm]/bestaudio",
             "--no-playlist", "--no-part", "--no-mtime", "--no-progress",
@@ -156,6 +149,33 @@ class Engine:
         self._trim(video_id)
         self._save()
         return path
+
+    async def fetch_video(self, video_id, out_dir, min_seconds, max_seconds):
+        return await self._self_fixing(lambda: self._fetch_video_once(video_id, out_dir, min_seconds, max_seconds))
+
+    async def _fetch_video_once(self, video_id, out_dir, min_seconds, max_seconds):
+        """Pixel video source: the smallest video-only stream (144p) and the
+        smallest audio stream (only to line the video up with the song).
+        Returns (video_path, audio_path), or None when the upload is skipped:
+        a lyric / audio-only / visualiser upload, an auto-generated "Topic"
+        channel, or a length that can't be this song."""
+        if not VIDEO_ID.match(str(video_id)):
+            return None
+        args = self._js() + [
+            "-f", "wv[height>=144]/wv,wa",
+            "--match-filters",
+            f"title!~='{NOT_A_VIDEO}' & channel!~=' - Topic$' & duration>{int(min_seconds)} & duration<{int(max_seconds)}",
+            "--no-playlist", "--no-part", "--no-mtime", "--no-progress", "--no-warnings",
+            "--cache-dir", os.path.join(os.path.dirname(self.cache_dir), "yt-dlp-cache"),
+            "-o", os.path.join(out_dir, "%(id)s.%(format_id)s.%(ext)s"),
+            "--print", "after_move:filepath",
+            f"https://www.youtube.com/watch?v={video_id}",
+        ]
+        code, out, err = await self._run(args)
+        if code != 0:
+            raise classify(err)
+        paths = [line for line in out.strip().splitlines() if line and os.path.exists(line)]
+        return (paths[0], paths[1]) if len(paths) == 2 else None
 
     def _trim(self, keep):
         total = sum(e["size"] for e in self.index.values())
@@ -197,31 +217,20 @@ class Engine:
             self.index.pop(video_id, None)
         self._save()
 
-    async def version(self, binary=None):
-        if binary:
-            proc = await asyncio.create_subprocess_exec(
-                binary, "--version", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env=child_env())
-            out, _ = await proc.communicate()
-            return out.decode().strip() if proc.returncode == 0 else None
+    async def version(self):
+        if self.tools.version:
+            return self.tools.version
+        if not self.tools.ready:
+            return None
         code, out, _err = await self._run(["--version"], 30)
         return out.strip() if code == 0 else None
 
-    async def adopt_newer_bundled(self):
-        """After a plugin update, use its yt-dlp if it's newer than our copy.
-        (Versions are dates, e.g. 2026.10.26, so they compare as text.)"""
-        if not os.path.exists(self.bundled):
-            return
-        mine, bundled = await self.version(self.ytdlp), await self.version(self.bundled)
-        if bundled and (not mine or bundled > mine):
-            shutil.copy2(self.bundled, self.ytdlp)
-            os.chmod(self.ytdlp, 0o755)
-
     async def update(self):
-        """Self-update yt-dlp (the fix when YouTube changes something)."""
-        code, out, err = await self._run(["-U"], 180)
-        lines = (out + err).strip().splitlines()
-        message = next((l for l in reversed(lines) if re.search(r"Updated yt-dlp|up to date|ERROR", l)), lines[-1] if lines else "")
-        if code != 0:
-            raise EngineError("FAILED", f"Update failed: {message or 'unknown error'}")
+        """The manual "Update music engine" button: same checked update as the
+        automatic ones (the working version stays if anything fails)."""
+        try:
+            message = await self.tools.update("button")
+        except ToolsError as error:
+            raise EngineError("FAILED", str(error))
         self.last_error = None
         return message

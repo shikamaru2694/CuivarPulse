@@ -1,27 +1,34 @@
-"""Builds the release ZIP: out/CuivarPulse-<version>.zip
+"""Builds the release ZIP: out/CuivarPulse.zip (+ out/SHA256SUMS).
 
-    python scripts/package.py
+The name has no version in it, so the install link
+.../releases/latest/download/CuivarPulse.zip always gets the newest release.
 
-Steps: build the frontend, make sure bin/ holds the exact programs listed
-under "remote_binary" in package.json (downloading and checking their SHA-256
-if needed), then zip only what the plugin needs to run. The ZIP installs via
-Decky's "Install plugin from ZIP" (developer mode)."""
+    python scripts/package.py               local test build
+    python scripts/package.py --tag v1.1.0  release build (GitHub Actions, see
+                                            .github/workflows/release.yml)
 
+Steps: build the panel (dist/index.js) from src/, then zip the files the
+plugin needs to run. The source files come from git (tracked files only), so
+the ZIP holds exactly what's in the repository at that commit, plus the built
+panel. Nothing else: no programs (the music engine is downloaded and checked
+on first launch, see cuivar/tools.py) and no source maps.
+Files get a fixed date so the same commit always gives the same ZIP.
+"""
+
+import argparse
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import sys
-import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = "CuivarPulse"  # folder name inside the ZIP (= plugin folder on the device)
-
 FILES = ["plugin.json", "package.json", "main.py", "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md"]
-DIRS = ["dist", "cuivar", "py_modules", "bin"]
-SKIP = {"__pycache__", ".DS_Store", "Thumbs.db"}
+TRACKED_DIRS = ["cuivar", "py_modules"]   # taken from git, as committed
+BUILT = ["dist/index.js"]                 # built from src/ by `npm run build`
+FIXED_DATE = (2026, 1, 1, 0, 0, 0)
 
 
 def sha256(path):
@@ -32,68 +39,46 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def fetch_binaries(package):
-    os.makedirs(os.path.join(ROOT, "bin"), exist_ok=True)
-    for item in package.get("remote_binary", []):
-        path = os.path.join(ROOT, "bin", item["name"])
-        if os.path.exists(path) and sha256(path) == item["sha256hash"]:
-            print(f"  bin/{item['name']}: ok")
-            continue
-        print(f"  bin/{item['name']}: downloading {item['url']}")
-        partial = path + ".part"
-        urllib.request.urlretrieve(item["url"], partial)
-        actual = sha256(partial)
-        if actual != item["sha256hash"]:
-            os.remove(partial)
-            sys.exit(f"  checksum mismatch for {item['name']}: got {actual}")
-        os.replace(partial, path)
+def tracked(folder):
+    out = subprocess.run(["git", "ls-files", "-z", "--", folder], cwd=ROOT, capture_output=True, check=True).stdout
+    return sorted(path for path in out.decode().split("\0") if path)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag", help="release tag; must be v<version from package.json>")
+    args = parser.parse_args()
+
     with open(os.path.join(ROOT, "package.json"), encoding="utf-8") as f:
-        package = json.load(f)
-    version = package["version"]
+        version = json.load(f)["version"]
+    if args.tag and args.tag != f"v{version}":
+        sys.exit(f"Tag {args.tag} doesn't match package.json version {version}.")
 
-    print("Building frontend…")
+    print("Building the panel…")
     subprocess.run("npm run build", shell=True, cwd=ROOT, check=True)
-    print("Checking programs…")
-    fetch_binaries(package)
 
-    for name in FILES + DIRS:
-        if not os.path.exists(os.path.join(ROOT, name)):
-            sys.exit(f"missing: {name}")
+    paths = FILES + [p for d in TRACKED_DIRS for p in tracked(d)] + BUILT
+    for path in paths:
+        if not os.path.isfile(os.path.join(ROOT, path)):
+            sys.exit(f"missing: {path}")
 
     out_dir = os.path.join(ROOT, "out")
     os.makedirs(out_dir, exist_ok=True)
-    zip_path = os.path.join(out_dir, f"{FOLDER}-{version}.zip")
-    if os.path.exists(zip_path):
-        os.remove(zip_path)
-
-    def add(zf, path):
-        rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
-        info = zipfile.ZipInfo.from_file(path, f"{FOLDER}/{rel}")
-        executable = rel.startswith("bin/")
-        info.external_attr = ((0o755 if executable else 0o644) | 0o100000) << 16
-        info.compress_type = zipfile.ZIP_DEFLATED
-        with open(path, "rb") as f:
-            zf.writestr(info, f.read())
-
-    count = 0
+    name = f"{FOLDER}.zip"
+    zip_path = os.path.join(out_dir, name)
     with zipfile.ZipFile(zip_path, "w") as zf:
-        for name in FILES:
-            add(zf, os.path.join(ROOT, name))
-            count += 1
-        for name in DIRS:
-            for folder, subdirs, files in os.walk(os.path.join(ROOT, name)):
-                subdirs[:] = sorted(d for d in subdirs if d not in SKIP)
-                for file in sorted(files):
-                    if file in SKIP or file.endswith((".pyc", ".part")):
-                        continue
-                    add(zf, os.path.join(folder, file))
-                    count += 1
+        for path in paths:
+            info = zipfile.ZipInfo(f"{FOLDER}/{path}", FIXED_DATE)
+            info.external_attr = (0o644 | 0o100000) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(os.path.join(ROOT, path), "rb") as f:
+                zf.writestr(info, f.read())
 
+    digest = sha256(zip_path)
+    with open(os.path.join(out_dir, "SHA256SUMS"), "w", newline="\n") as f:
+        f.write(f"{digest}  {name}\n")
     size = os.path.getsize(zip_path) / 1024 / 1024
-    print(f"\n{zip_path}\n{count} files, {size:.1f} MB")
+    print(f"\n{zip_path} (version {version})\n{len(paths)} files, {size:.1f} MB\nSHA-256 {digest}")
 
 
 if __name__ == "__main__":
